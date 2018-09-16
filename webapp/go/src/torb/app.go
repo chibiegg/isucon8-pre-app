@@ -85,7 +85,7 @@ type Administrator struct {
 }
 
 type SheetConfig struct {
-	ID int64
+	ID    int64
 	Count int64
 	Price int64
 }
@@ -97,10 +97,15 @@ var SheetConfigs map[string]SheetConfig = map[string]SheetConfig{
 	"C": SheetConfig{501, 500, 0},
 }
 
+func getSheetRange(rank string) (int64, int64) {
+	sc := SheetConfigs[rank]
+	return sc.ID, sc.ID + sc.Count
+}
+
 var DefaultSheets []*Sheet
 
 func getSheetFromId(id int64) *Sheet {
-	sheet := DefaultSheets[id - 1]
+	sheet := DefaultSheets[id-1]
 	return sheet
 }
 
@@ -283,9 +288,9 @@ func getEvent(eventID, loginUserID int64) (*Event, error) {
 
 	for _, s := range DefaultSheets {
 		var sheet = Sheet{
-			ID: s.ID,
-			Rank: s.Rank,
-			Num: s.Num,
+			ID:    s.ID,
+			Rank:  s.Rank,
+			Num:   s.Num,
 			Price: s.Price,
 		}
 
@@ -294,17 +299,17 @@ func getEvent(eventID, loginUserID int64) (*Event, error) {
 		event.Sheets[sheet.Rank].Total++
 
 		var reservation Reservation
-		err := db.QueryRow("" +
-			"SELECT * FROM reservations " +
-			"WHERE event_id = ? AND sheet_id = ? AND canceled_at IS NULL " +
+		err := db.QueryRow(""+
+			"SELECT * FROM reservations "+
+			"WHERE event_id = ? AND sheet_id = ? AND canceled_at IS NULL "+
 			"GROUP BY event_id, sheet_id HAVING reserved_at = MIN(reserved_at)", event.ID, sheet.ID,
-			).Scan(
-				&reservation.ID,
-				&reservation.EventID,
-				&reservation.SheetID,
-				&reservation.UserID,
-				&reservation.ReservedAt,
-				&reservation.CanceledAt)
+		).Scan(
+			&reservation.ID,
+			&reservation.EventID,
+			&reservation.SheetID,
+			&reservation.UserID,
+			&reservation.ReservedAt,
+			&reservation.CanceledAt)
 
 		if err == nil {
 			sheet.Mine = reservation.UserID == loginUserID
@@ -392,9 +397,9 @@ func main() {
 		c := SheetConfigs[rank]
 		for num := int64(1); num <= c.Count; num++ {
 			DefaultSheets = append(DefaultSheets, &Sheet{
-				ID: c.ID + num - 1,
-				Rank: rank,
-				Num: num,
+				ID:    c.ID + num - 1,
+				Rank:  rank,
+				Num:   num,
 				Price: c.Price,
 			})
 		}
@@ -500,11 +505,11 @@ func main() {
 			return resError(c, "forbidden", 403)
 		}
 
-		rows, err := db.Query("" +
-				"SELECT r.*" +
-				"FROM reservations r WHERE r.user_id = ? " +
-				"ORDER BY IFNULL(r.canceled_at, r.reserved_at) " +
-				"DESC LIMIT 5",
+		rows, err := db.Query(""+
+			"SELECT r.*"+
+			"FROM reservations r WHERE r.user_id = ? "+
+			"ORDER BY IFNULL(r.canceled_at, r.reserved_at) "+
+			"DESC LIMIT 5",
 			user.ID)
 		if err != nil {
 			return err
@@ -544,11 +549,11 @@ func main() {
 		}
 
 		var totalPrice int
-		if err := db.QueryRow("" +
-			"SELECT IFNULL(SUM(e.price + s.price), 0) " +
-			"FROM reservations r " +
-			"INNER JOIN sheets s ON s.id = r.sheet_id " +
-			"INNER JOIN events e ON e.id = r.event_id " +
+		if err := db.QueryRow(""+
+			"SELECT IFNULL(SUM(e.price + s.price), 0) "+
+			"FROM reservations r "+
+			"INNER JOIN sheets s ON s.id = r.sheet_id "+
+			"INNER JOIN events e ON e.id = r.event_id "+
 			"WHERE r.user_id = ? AND r.canceled_at IS NULL",
 			user.ID).Scan(&totalPrice); err != nil {
 			return err
@@ -682,15 +687,35 @@ func main() {
 			return resError(c, "invalid_rank", 400)
 		}
 
-		var sheet Sheet
+		sheetIdL, sheetIdR := getSheetRange(params.Rank)
+		usedSheets := make([]bool, sheetIdR-sheetIdL)
+
+		var sheet *Sheet
 		var reservationID int64
 		for {
-			if err := db.QueryRow("SELECT * FROM sheets WHERE id NOT IN (SELECT sheet_id FROM reservations WHERE event_id = ? AND canceled_at IS NULL FOR UPDATE) AND `rank` = ? ORDER BY RAND() LIMIT 1", event.ID, params.Rank).Scan(&sheet.ID, &sheet.Rank, &sheet.Num, &sheet.Price); err != nil {
-				if err == sql.ErrNoRows {
-					return resError(c, "sold_out", 409)
+			rows, _ := db.Query("SELECT sheet_id FROM reservations WHERE event_id = ? AND canceled_at IS NULL FOR UPDATE", event.ID)
+			defer rows.Close()
+
+			for rows.Next() {
+				var sheetId int64
+				rows.Scan(&sheetId)
+				if sheetIdL <= sheetId && sheetId < sheetIdR {
+					usedSheets[sheetId-sheetIdL] = true
 				}
-				return err
 			}
+
+			useSheetId := int64(-1)
+			for i := sheetIdL; i < sheetIdR; i++ {
+				if !usedSheets[i-sheetIdL] {
+					useSheetId = i
+					break
+				}
+			}
+
+			if useSheetId == -1 {
+				return resError(c, "sold_out", 409)
+			}
+			sheet = getSheetFromId(useSheetId)
 
 			tx, err := db.Begin()
 			if err != nil {
