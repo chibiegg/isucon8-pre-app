@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	. "github.com/ahmetb/go-linq"
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/gorilla/sessions"
 	"github.com/labstack/echo"
@@ -298,7 +299,19 @@ func getEvent(eventID, loginUserID int64) (*Event, error) {
 		event.Total++
 		event.Sheets[sheet.Rank].Total++
 
-		var reservation Reservation
+		var reservations []*Reservation
+		From(reservationStore).Where(func(c interface{}) bool {
+			r := c.(*Reservation)
+			if r.EventID != event.ID {
+				return false
+			}
+			if r.CanceledAt != nil {
+				return false
+			}
+			return true
+		}).ToSlice(&reservations)
+
+		/*
 		err := db.QueryRow(""+
 			"SELECT * FROM reservations "+
 			"WHERE event_id = ? AND sheet_id = ? AND canceled_at IS NULL "+
@@ -310,16 +323,15 @@ func getEvent(eventID, loginUserID int64) (*Event, error) {
 			&reservation.UserID,
 			&reservation.ReservedAt,
 			&reservation.CanceledAt)
+		*/
 
-		if err == nil {
-			sheet.Mine = reservation.UserID == loginUserID
-			sheet.Reserved = true
-			sheet.ReservedAtUnix = reservation.ReservedAt.Unix()
-		} else if err == sql.ErrNoRows {
+		if len(reservations) == 0 {
 			event.Remains++
 			event.Sheets[sheet.Rank].Remains++
 		} else {
-			return nil, err
+			sheet.Mine = reservation.UserID == loginUserID
+			sheet.Reserved = true
+			sheet.ReservedAtUnix = reservation.ReservedAt.Unix()
 		}
 
 		event.Sheets[sheet.Rank].Detail = append(event.Sheets[sheet.Rank].Detail, &sheet)
