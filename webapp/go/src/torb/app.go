@@ -99,7 +99,7 @@ var SheetConfigs map[string]SheetConfig = map[string]SheetConfig{
 
 var DefaultSheets []*Sheet
 
-func getSheetFromId(id int64) Sheet {
+func getSheetFromId(id int64) *Sheet {
 	sheet := DefaultSheets[id - 1]
 	return sheet
 }
@@ -205,7 +205,7 @@ func getLoginAdministrator(c echo.Context) (*Administrator, error) {
 }
 
 var (
-	reservationStore = make([]Reservation, 0)
+	reservationStore = make([]*Reservation, 0)
 )
 
 func initReservation() error {
@@ -215,7 +215,7 @@ func initReservation() error {
 	}
 	defer rows.Close()
 
-	reservationStore = make([]Reservation, 0)
+	reservationStore = make([]*Reservation, 0)
 
 	for rows.Next() {
 		var reservation Reservation
@@ -226,7 +226,7 @@ func initReservation() error {
 			&reservation.UserID,
 			&reservation.ReservedAt,
 			&reservation.CanceledAt)
-		reservationStore = append(reservationStore, reservation)
+		reservationStore = append(reservationStore, &reservation)
 	}
 
 	return nil
