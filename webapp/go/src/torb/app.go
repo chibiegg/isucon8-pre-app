@@ -91,10 +91,10 @@ type SheetConfig struct {
 }
 
 var SheetConfigs map[string]SheetConfig = map[string]SheetConfig{
+	"S": SheetConfig{1, 50, 5000},
 	"A": SheetConfig{51, 150, 3000},
 	"B": SheetConfig{201, 300, 1000},
 	"C": SheetConfig{501, 500, 0},
-	"S": SheetConfig{1, 50, 5000},
 }
 
 var DefaultSheets []*Sheet
@@ -388,7 +388,7 @@ func main() {
 
 	// DefaultSheets
 	DefaultSheets = make([]*Sheet, 0, 1000)
-	for _, rank := range []string{"A", "B", "C", "S"} {
+	for _, rank := range []string{"S", "A", "B", "C"} {
 		c := SheetConfigs[rank]
 		for num := int64(1); num <= c.Count; num++ {
 			DefaultSheets = append(DefaultSheets, &Sheet{
