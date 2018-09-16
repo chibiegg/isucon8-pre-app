@@ -522,7 +522,7 @@ func main() {
 				return false
 			}
 			return true
-		}).OrderBy(func(c interface{}) interface{} {
+		}).OrderByDescending(func(c interface{}) interface{} {
 			r := c.(*Reservation)
 			if r.CanceledAt != nil {
 				return r.CanceledAt.UnixNano()
@@ -532,7 +532,7 @@ func main() {
 		}).ToSlice(&relatedReservations)
 
 		var recentReservations []*Reservation
-		From(reservationStore).Take(5).ToSlice(&recentReservations)
+		From(relatedReservations).Take(5).ToSlice(&recentReservations)
 
 		for _, reservation := range (recentReservations) {
 			sheet := getSheetFromId(reservation.SheetID)
@@ -578,7 +578,7 @@ func main() {
 			return r.EventID
 		}, func(c interface{}) interface{} {
 			return c
-		}).OrderBy(func(c interface{}) interface{} {
+		}).OrderByDescending(func(c interface{}) interface{} {
 			values := c.(Group).Group
 			maxTime := From(values).Select(func(c2 interface{}) interface{} {
 				r := c2.(*Reservation)
