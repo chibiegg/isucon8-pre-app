@@ -110,6 +110,27 @@ func getSheetFromId(id int64) *Sheet {
 	return sheet
 }
 
+func sessUser(c echo.Context) *User {
+	sess, _ := session.Get("session", c)
+	if x, ok := sess.Values["user"]; ok {
+		u := User{}
+		json.Unmarshal(x.([]byte), &u)
+		return &u
+	}
+	return nil
+}
+
+func sessSetUser(c echo.Context, u *User) {
+	sess, _ := session.Get("session", c)
+	sess.Options = &sessions.Options{
+		Path:     "/",
+		MaxAge:   3600,
+		HttpOnly: true,
+	}
+	sess.Values["user"], _ = json.Marshal(u)
+	sess.Save(c.Request(), c.Response())
+}
+/*
 func sessUserID(c echo.Context) int64 {
 	sess, _ := session.Get("session", c)
 	var userID int64
@@ -118,6 +139,7 @@ func sessUserID(c echo.Context) int64 {
 	}
 	return userID
 }
+
 
 func sessSetUserID(c echo.Context, id int64) {
 	sess, _ := session.Get("session", c)
@@ -129,6 +151,7 @@ func sessSetUserID(c echo.Context, id int64) {
 	sess.Values["user_id"] = id
 	sess.Save(c.Request(), c.Response())
 }
+*/
 
 func sessDeleteUserID(c echo.Context) {
 	sess, _ := session.Get("session", c)
@@ -191,13 +214,17 @@ func adminLoginRequired(next echo.HandlerFunc) echo.HandlerFunc {
 }
 
 func getLoginUser(c echo.Context) (*User, error) {
-	userID := sessUserID(c)
-	if userID == 0 {
+	user := sessUser(c)
+	if user == nil {
 		return nil, errors.New("not logged in")
 	}
+	/*
 	var user User
 	err := db.QueryRow("SELECT id, nickname FROM users WHERE id = ?", userID).Scan(&user.ID, &user.Nickname)
 	return &user, err
+	*/
+	fmt.Println(*user)
+	return user, nil
 }
 
 func getLoginAdministrator(c echo.Context) (*Administrator, error) {
@@ -622,7 +649,7 @@ func main() {
 			return resError(c, "authentication_failed", 401)
 		}
 
-		sessSetUserID(c, user.ID)
+		sessSetUser(c, user)
 		user, err = getLoginUser(c)
 		if err != nil {
 			return err
