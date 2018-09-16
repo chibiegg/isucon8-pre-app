@@ -111,34 +111,41 @@ func getSheetFromId(id int64) *Sheet {
 	return sheet
 }
 
-func sessUserID(c echo.Context) int64 {
+func sessUser(c echo.Context) *User {
 	sess, _ := session.Get("session", c)
-	var userID int64
-	if x, ok := sess.Values["user_id"]; ok {
-		userID, _ = x.(int64)
+	if x, ok := sess.Values["user"]; ok {
+		jsonStr := x.([]byte)
+		user := &User{}
+		json.Unmarshal(jsonStr, user)
+		return user
 	}
-	return userID
+	return nil
 }
 
-func sessSetUserID(c echo.Context, id int64) {
+func sessSetUser(c echo.Context, u *User) {
 	sess, _ := session.Get("session", c)
 	sess.Options = &sessions.Options{
 		Path:     "/",
 		MaxAge:   3600,
 		HttpOnly: true,
 	}
-	sess.Values["user_id"] = id
+
+	nu := &User{
+		ID: u.ID,
+		Nickname: u.Nickname,
+	}
+	sess.Values["user"], _ = json.Marshal(nu)
 	sess.Save(c.Request(), c.Response())
 }
 
-func sessDeleteUserID(c echo.Context) {
+func sessDeleteUser(c echo.Context) {
 	sess, _ := session.Get("session", c)
 	sess.Options = &sessions.Options{
 		Path:     "/",
 		MaxAge:   3600,
 		HttpOnly: true,
 	}
-	delete(sess.Values, "user_id")
+	delete(sess.Values, "user")
 	sess.Save(c.Request(), c.Response())
 }
 
@@ -192,13 +199,11 @@ func adminLoginRequired(next echo.HandlerFunc) echo.HandlerFunc {
 }
 
 func getLoginUser(c echo.Context) (*User, error) {
-	userID := sessUserID(c)
-	if userID == 0 {
+	user := sessUser(c)
+	if user == nil {
 		return nil, errors.New("not logged in")
 	}
-	var user User
-	err := db.QueryRow("SELECT id, nickname FROM users WHERE id = ?", userID).Scan(&user.ID, &user.Nickname)
-	return &user, err
+	return user, nil
 }
 
 func getLoginAdministrator(c echo.Context) (*Administrator, error) {
@@ -642,7 +647,7 @@ func main() {
 			return resError(c, "authentication_failed", 401)
 		}
 
-		sessSetUserID(c, user.ID)
+		sessSetUser(c, user)
 		user, err = getLoginUser(c)
 		if err != nil {
 			return err
@@ -650,7 +655,7 @@ func main() {
 		return c.JSON(200, user)
 	})
 	e.POST("/api/actions/logout", func(c echo.Context) error {
-		sessDeleteUserID(c)
+		sessDeleteUser(c)
 		return c.NoContent(204)
 	}, loginRequired)
 	e.GET("/api/events", func(c echo.Context) error {
