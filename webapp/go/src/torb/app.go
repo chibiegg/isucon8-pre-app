@@ -85,7 +85,7 @@ type Administrator struct {
 }
 
 type SheetConfig struct {
-	ID int64
+	ID    int64
 	Count int64
 	Price int64
 }
@@ -100,7 +100,7 @@ var SheetConfigs map[string]SheetConfig = map[string]SheetConfig{
 var DefaultSheets []*Sheet
 
 func getSheetFromId(id int64) *Sheet {
-	sheet := DefaultSheets[id - 1]
+	sheet := DefaultSheets[id-1]
 	return sheet
 }
 
@@ -283,9 +283,9 @@ func getEvent(eventID, loginUserID int64) (*Event, error) {
 
 	for _, s := range DefaultSheets {
 		var sheet = Sheet{
-			ID: s.ID,
-			Rank: s.Rank,
-			Num: s.Num,
+			ID:    s.ID,
+			Rank:  s.Rank,
+			Num:   s.Num,
 			Price: s.Price,
 		}
 
@@ -294,17 +294,17 @@ func getEvent(eventID, loginUserID int64) (*Event, error) {
 		event.Sheets[sheet.Rank].Total++
 
 		var reservation Reservation
-		err := db.QueryRow("" +
-			"SELECT * FROM reservations " +
-			"WHERE event_id = ? AND sheet_id = ? AND canceled_at IS NULL " +
+		err := db.QueryRow(""+
+			"SELECT * FROM reservations "+
+			"WHERE event_id = ? AND sheet_id = ? AND canceled_at IS NULL "+
 			"GROUP BY event_id, sheet_id HAVING reserved_at = MIN(reserved_at)", event.ID, sheet.ID,
-			).Scan(
-				&reservation.ID,
-				&reservation.EventID,
-				&reservation.SheetID,
-				&reservation.UserID,
-				&reservation.ReservedAt,
-				&reservation.CanceledAt)
+		).Scan(
+			&reservation.ID,
+			&reservation.EventID,
+			&reservation.SheetID,
+			&reservation.UserID,
+			&reservation.ReservedAt,
+			&reservation.CanceledAt)
 
 		if err == nil {
 			sheet.Mine = reservation.UserID == loginUserID
@@ -392,9 +392,9 @@ func main() {
 		c := SheetConfigs[rank]
 		for num := int64(1); num <= c.Count; num++ {
 			DefaultSheets = append(DefaultSheets, &Sheet{
-				ID: c.ID + num - 1,
-				Rank: rank,
-				Num: num,
+				ID:    c.ID + num - 1,
+				Rank:  rank,
+				Num:   num,
 				Price: c.Price,
 			})
 		}
@@ -500,11 +500,11 @@ func main() {
 			return resError(c, "forbidden", 403)
 		}
 
-		rows, err := db.Query("" +
-				"SELECT r.*" +
-				"FROM reservations r WHERE r.user_id = ? " +
-				"ORDER BY IFNULL(r.canceled_at, r.reserved_at) " +
-				"DESC LIMIT 5",
+		rows, err := db.Query(""+
+			"SELECT r.*"+
+			"FROM reservations r WHERE r.user_id = ? "+
+			"ORDER BY IFNULL(r.canceled_at, r.reserved_at) "+
+			"DESC LIMIT 5",
 			user.ID)
 		if err != nil {
 			return err
@@ -544,11 +544,11 @@ func main() {
 		}
 
 		var totalPrice int
-		if err := db.QueryRow("" +
-			"SELECT IFNULL(SUM(e.price + s.price), 0) " +
-			"FROM reservations r " +
-			"INNER JOIN sheets s ON s.id = r.sheet_id " +
-			"INNER JOIN events e ON e.id = r.event_id " +
+		if err := db.QueryRow(""+
+			"SELECT IFNULL(SUM(e.price + s.price), 0) "+
+			"FROM reservations r "+
+			"INNER JOIN sheets s ON s.id = r.sheet_id "+
+			"INNER JOIN events e ON e.id = r.event_id "+
 			"WHERE r.user_id = ? AND r.canceled_at IS NULL",
 			user.ID).Scan(&totalPrice); err != nil {
 			return err
@@ -760,32 +760,45 @@ func main() {
 		}
 		sheetId := sc.ID + intNum - 1
 
-		tx, err := db.Begin()
-		if err != nil {
-			return err
-		}
+		// tx, err := db.Begin()
+		// if err != nil {
+		// 	return err
+		// }
 
-		var reservation Reservation
-		if err := tx.QueryRow("SELECT * FROM reservations WHERE event_id = ? AND sheet_id = ? AND canceled_at IS NULL GROUP BY event_id HAVING reserved_at = MIN(reserved_at) FOR UPDATE", event.ID, sheetId).Scan(&reservation.ID, &reservation.EventID, &reservation.SheetID, &reservation.UserID, &reservation.ReservedAt, &reservation.CanceledAt); err != nil {
-			tx.Rollback()
-			if err == sql.ErrNoRows {
-				return resError(c, "not_reserved", 400)
+		minIndex := -1
+		minReservedAt := time.Now()
+		for i, record := range reservationStore {
+			if record.EventID == event.ID && record.SheetID == sheetId && record.CanceledAt == nil {
+				if minReservedAt.Unix() > record.ReservedAt.Unix() {
+					minIndex = i
+					minReservedAt = *record.ReservedAt
+				}
 			}
-			return err
 		}
-		if reservation.UserID != user.ID {
-			tx.Rollback()
+		if minIndex == -1 {
+			return resError(c, "not_reserved", 400)
+		}
+		if reservationStore[minIndex].UserID != user.ID {
 			return resError(c, "not_permitted", 403)
 		}
 
-		if _, err := tx.Exec("UPDATE reservations SET canceled_at = ? WHERE id = ?", time.Now().UTC().Format("2006-01-02 15:04:05.000000"), reservation.ID); err != nil {
-			tx.Rollback()
-			return err
-		}
+		now := time.Now()
+		reservationStore[minIndex].CanceledAt = &now
 
-		if err := tx.Commit(); err != nil {
-			return err
-		}
+		/*
+			tx, err := db.Begin()
+			if err != nil {
+				return nil, err
+			}
+			if _, err := tx.Exec("UPDATE reservations SET canceled_at = ? WHERE id = ?", now.UTC().Format("2006-01-02 15:04:05.000000"), reservationStore[minIndex].ID); err != nil {
+				tx.Rollback()
+				return err
+			}
+
+			if err := tx.Commit(); err != nil {
+				return err
+			}
+		*/
 
 		return c.NoContent(204)
 	}, loginRequired)
