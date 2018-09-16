@@ -99,7 +99,7 @@ var SheetConfigs map[string]SheetConfig = map[string]SheetConfig{
 
 var DefaultSheets []*Sheet
 
-func getSheetFromId(id int64) Sheet {
+func getSheetFromId(id int64) *Sheet {
 	sheet := DefaultSheets[id - 1]
 	return sheet
 }
