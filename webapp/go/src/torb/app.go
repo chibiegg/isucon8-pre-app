@@ -273,7 +273,7 @@ func getEvents(all bool) ([]*Event, error) {
 		events = append(events, event)
 	}
 	for i, event := range events {
-		fillEventOtherFields(event, -1)
+		event = fillEventOtherFields(event, -1)
 		for k := range event.Sheets {
 			event.Sheets[k].Detail = nil
 		}
@@ -282,8 +282,8 @@ func getEvents(all bool) ([]*Event, error) {
 	return events, nil
 }
 
-func fillEventOtherFields(e *Event, loginUserID int64) {
-	var event Event = *e
+func fillEventOtherFields(e *Event, loginUserID int64) *Event {
+	event := *e
 
 	event.Sheets = map[string]*Sheets{
 		"S": &Sheets{},
@@ -340,6 +340,7 @@ func fillEventOtherFields(e *Event, loginUserID int64) {
 
 		event.Sheets[sheet.Rank].Detail = append(event.Sheets[sheet.Rank].Detail, &sheet)
 	}
+	return &event
 }
 
 func getEvent(eventID, loginUserID int64) (*Event, error) {
@@ -347,8 +348,7 @@ func getEvent(eventID, loginUserID int64) (*Event, error) {
 		return nil, sql.ErrNoRows
 	}
 	e := eventStore[eventID - 1]
-	fillEventOtherFields(e, loginUserID)
-	return e, nil
+	return fillEventOtherFields(e, loginUserID), nil
 }
 
 func sanitizeEvent(e *Event) *Event {
@@ -980,7 +980,7 @@ func main() {
 			}
 		}()
 
-		fillEventOtherFields(event, -1)
+		event = fillEventOtherFields(event, -1)
 		return c.JSON(200, event)
 	}, adminLoginRequired)
 	e.GET("/admin/api/events/:id", func(c echo.Context) error {
