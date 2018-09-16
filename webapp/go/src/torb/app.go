@@ -191,7 +191,7 @@ func getEvents(all bool) ([]*Event, error) {
 	}
 	defer tx.Commit()
 
-	rows, err := tx.Query("SELECT * FROM events ORDER BY id ASC")
+	rows, err := tx.Query("SELECT * FROM events WHERE  ORDER BY id ASC")
 	if err != nil {
 		return nil, err
 	}
@@ -309,11 +309,20 @@ func (r *Renderer) Render(w io.Writer, name string, data interface{}, c echo.Con
 
 var db *sql.DB
 
+func Getenv(key, fallback string) string {
+	ret := os.Getenv(key)
+	if ret != "" {
+		return ret
+	} else {
+		return fallback
+	}
+}
+
 func main() {
 	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?parseTime=true&charset=utf8mb4",
-		os.Getenv("DB_USER"), os.Getenv("DB_PASS"),
-		os.Getenv("DB_HOST"), os.Getenv("DB_PORT"),
-		os.Getenv("DB_DATABASE"),
+		Getenv("DB_USER", "isucon"), Getenv("DB_PASS", "isucon"),
+		Getenv("DB_HOST", "127.0.0.1"), Getenv("DB_PORT", "3306"),
+		Getenv("DB_DATABASE", "torb"),
 	)
 
 	var err error
