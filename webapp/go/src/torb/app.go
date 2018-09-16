@@ -795,32 +795,45 @@ func main() {
 		}
 		sheetId := sc.ID + intNum - 1
 
-		tx, err := db.Begin()
-		if err != nil {
-			return err
-		}
+		// tx, err := db.Begin()
+		// if err != nil {
+		// 	return err
+		// }
 
-		var reservation Reservation
-		if err := tx.QueryRow("SELECT * FROM reservations WHERE event_id = ? AND sheet_id = ? AND canceled_at IS NULL GROUP BY event_id HAVING reserved_at = MIN(reserved_at) FOR UPDATE", event.ID, sheetId).Scan(&reservation.ID, &reservation.EventID, &reservation.SheetID, &reservation.UserID, &reservation.ReservedAt, &reservation.CanceledAt); err != nil {
-			tx.Rollback()
-			if err == sql.ErrNoRows {
-				return resError(c, "not_reserved", 400)
+		minIndex := -1
+		minReservedAt := time.Now()
+		for i, record := range reservationStore {
+			if record.EventID == event.ID && record.SheetID == sheetId && record.CanceledAt == nil {
+				if minReservedAt.Unix() > record.ReservedAt.Unix() {
+					minIndex = i
+					minReservedAt = *record.ReservedAt
+				}
 			}
-			return err
 		}
-		if reservation.UserID != user.ID {
-			tx.Rollback()
+		if minIndex == -1 {
+			return resError(c, "not_reserved", 400)
+		}
+		if reservationStore[minIndex].UserID != user.ID {
 			return resError(c, "not_permitted", 403)
 		}
 
-		if _, err := tx.Exec("UPDATE reservations SET canceled_at = ? WHERE id = ?", time.Now().UTC().Format("2006-01-02 15:04:05.000000"), reservation.ID); err != nil {
-			tx.Rollback()
-			return err
-		}
+		now := time.Now()
+		reservationStore[minIndex].CanceledAt = &now
 
-		if err := tx.Commit(); err != nil {
-			return err
-		}
+		/*
+			tx, err := db.Begin()
+			if err != nil {
+				return nil, err
+			}
+			if _, err := tx.Exec("UPDATE reservations SET canceled_at = ? WHERE id = ?", now.UTC().Format("2006-01-02 15:04:05.000000"), reservationStore[minIndex].ID); err != nil {
+				tx.Rollback()
+				return err
+			}
+
+			if err := tx.Commit(); err != nil {
+				return err
+			}
+		*/
 
 		return c.NoContent(204)
 	}, loginRequired)
