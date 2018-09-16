@@ -6,11 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	_ "github.com/go-sql-driver/mysql"
-	"github.com/gorilla/sessions"
-	"github.com/labstack/echo"
-	"github.com/labstack/echo-contrib/session"
-	"github.com/labstack/echo/middleware"
 	"html/template"
 	"io"
 	"log"
@@ -21,6 +16,12 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	_ "github.com/go-sql-driver/mysql"
+	"github.com/gorilla/sessions"
+	"github.com/labstack/echo"
+	"github.com/labstack/echo-contrib/session"
+	"github.com/labstack/echo/middleware"
 )
 
 type User struct {
@@ -196,9 +197,12 @@ func getLoginUser(c echo.Context) (*User, error) {
 	if userID == 0 {
 		return nil, errors.New("not logged in")
 	}
-	var user User
+
+	// DBからSELECTしてくる代わりにUsersからID指定で引っ張る
 	// err := db.QueryRow("SELECT id, nickname FROM users WHERE id = ?", userID).Scan(&user.ID, &user.Nickname)
 	u, _ := Users[userID]
+
+	var user User
 	user.ID = u.ID
 	user.Nickname = u.Nickname
 	return &user, nil
@@ -410,7 +414,7 @@ func main() {
 		}
 	}
 
-	// Users
+	// 起動時にUsersを初期化
 	Users = map[int64]*User{}
 
 	e := echo.New()
@@ -615,6 +619,7 @@ func main() {
 			return err
 		}
 
+		// DB引っ張ってきたデータをUsersマップに同期
 		Users[user.ID] = user
 
 		var passHash string
@@ -714,7 +719,7 @@ func main() {
 				}
 			}
 
-			idxes := make([]int64, sheetIdR - sheetIdL)
+			idxes := make([]int64, sheetIdR-sheetIdL)
 			for i := 0; i < len(idxes); i++ {
 				idxes[i] = int64(i) + sheetIdL
 			}
@@ -724,7 +729,7 @@ func main() {
 			}
 
 			useSheetId := int64(-1)
-			for i := 0; i < int(sheetIdR - sheetIdL); i++ {
+			for i := 0; i < int(sheetIdR-sheetIdL); i++ {
 				id := idxes[i]
 				if !usedSheets[id-sheetIdL] {
 					useSheetId = id
