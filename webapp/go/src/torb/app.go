@@ -769,6 +769,7 @@ func main() {
 				defer reservationMutex.Unlock()
 
 				reservation.ID = int64(len(reservationStore) + 1)
+				reservationID = reservation.ID
 				reservation.EventID = event.ID
 				reservation.SheetID = sheet.ID
 				reservation.UserID = user.ID
