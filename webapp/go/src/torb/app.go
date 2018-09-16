@@ -341,7 +341,7 @@ func fillEventOtherFields(event *Event, loginUserID int64) {
 }
 
 func getEvent(eventID, loginUserID int64) (*Event, error) {
-	if len(eventStore) <= int(eventID) - 1 {
+	if eventID <= 0 || len(eventStore) <= int(eventID) - 1 {
 		return nil, sql.ErrNoRows
 	}
 	e := eventStore[eventID - 1]
