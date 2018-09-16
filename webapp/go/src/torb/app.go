@@ -719,8 +719,10 @@ func main() {
 
 		var sheet *Sheet
 		var reservationID int64
-		for {
 
+		reservationMutex.Lock()
+		{
+			defer reservationMutex.Unlock()
 			var reservations []*Reservation
 			From(reservationStore).Where(func(c interface{}) bool {
 				r := c.(*Reservation)
@@ -764,20 +766,16 @@ func main() {
 			sheet = getSheetFromId(useSheetId)
 
 			reservation := &Reservation{}
-			reservationMutex.Lock()
-			{
-				defer reservationMutex.Unlock()
 
-				reservation.ID = int64(len(reservationStore) + 1)
-				reservationID = reservation.ID
-				reservation.EventID = event.ID
-				reservation.SheetID = sheet.ID
-				reservation.UserID = user.ID
-				reservationTime := time.Now().UTC()
-				reservation.ReservedAt = &reservationTime
+			reservation.ID = int64(len(reservationStore) + 1)
+			reservationID = reservation.ID
+			reservation.EventID = event.ID
+			reservation.SheetID = sheet.ID
+			reservation.UserID = user.ID
+			reservationTime := time.Now().UTC()
+			reservation.ReservedAt = &reservationTime
 
-				reservationStore = append(reservationStore, reservation)
-			}
+			reservationStore = append(reservationStore, reservation)
 
 			go func() {
 				res, err := db.Exec("INSERT INTO reservations (id, event_id, sheet_id, user_id, reserved_at) VALUES (?, ?, ?, ?, ?)",
@@ -795,8 +793,8 @@ func main() {
 				}
 			}()
 
-			break
 		}
+
 		return c.JSON(202, echo.Map{
 			"id":         reservationID,
 			"sheet_rank": params.Rank,
