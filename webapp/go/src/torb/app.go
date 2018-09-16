@@ -240,35 +240,40 @@ func initReservation() error {
 	return nil
 }
 
-func getEvents(all bool) ([]*Event, error) {
-	tx, err := db.Begin()
-	if err != nil {
-		return nil, err
-	}
-	defer tx.Commit()
+var (
+	eventStore = make([]*Event, 0)
+	eventMutex = new(sync.Mutex)
+)
 
-	rows, err := tx.Query("SELECT * FROM events ORDER BY id ASC")
+func initEvents() error {
+	rows, err := db.Query("SELECT * FROM events ORDER BY id ASC")
 	if err != nil {
-		return nil, err
+		return err
 	}
 	defer rows.Close()
 
-	var events []*Event
+	eventStore = make([]*Event, 0)
 	for rows.Next() {
 		var event Event
 		if err := rows.Scan(&event.ID, &event.Title, &event.PublicFg, &event.ClosedFg, &event.Price); err != nil {
-			return nil, err
+			return err
 		}
+		eventStore = append(eventStore, &event)
+	}
+
+	return nil
+}
+
+func getEvents(all bool) ([]*Event, error) {
+	var events []*Event
+	for _, event := range eventStore {
 		if !all && !event.PublicFg {
 			continue
 		}
-		events = append(events, &event)
+		events = append(events, event)
 	}
-	for i, v := range events {
-		event, err := getEvent(v.ID, -1)
-		if err != nil {
-			return nil, err
-		}
+	for i, event := range events {
+		fillEventOtherFields(event, -1)
 		for k := range event.Sheets {
 			event.Sheets[k].Detail = nil
 		}
@@ -277,11 +282,7 @@ func getEvents(all bool) ([]*Event, error) {
 	return events, nil
 }
 
-func getEvent(eventID, loginUserID int64) (*Event, error) {
-	var event Event
-	if err := db.QueryRow("SELECT * FROM events WHERE id = ? ORDER BY id", eventID).Scan(&event.ID, &event.Title, &event.PublicFg, &event.ClosedFg, &event.Price); err != nil {
-		return nil, err
-	}
+func fillEventOtherFields(event *Event, loginUserID int64) {
 	event.Sheets = map[string]*Sheets{
 		"S": &Sheets{},
 		"A": &Sheets{},
@@ -332,8 +333,15 @@ func getEvent(eventID, loginUserID int64) (*Event, error) {
 
 		event.Sheets[sheet.Rank].Detail = append(event.Sheets[sheet.Rank].Detail, &sheet)
 	}
+}
 
-	return &event, nil
+func getEvent(eventID, loginUserID int64) (*Event, error) {
+	if len(eventStore) <= int(eventID) - 1 {
+		return nil, sql.ErrNoRows
+	}
+	e := eventStore[eventID - 1]
+	fillEventOtherFields(e, loginUserID)
+	return e, nil
 }
 
 func sanitizeEvent(e *Event) *Event {
@@ -400,6 +408,7 @@ func main() {
 	}
 
 	initReservation()
+	initEvents()
 
 	// DefaultSheets
 	DefaultSheets = make([]*Sheet, 0, 1000)
@@ -446,6 +455,10 @@ func main() {
 		initReservation()
 		return c.NoContent(204)
 	})
+	e.GET("/debug/initEvents", func(c echo.Context) error {
+		initEvents()
+		return c.NoContent(204)
+	})
 
 	e.GET("/initialize", func(c echo.Context) error {
 		cmd := exec.Command("../../db/init.sh")
@@ -457,6 +470,7 @@ func main() {
 		}
 
 		initReservation()
+		initEvents()
 
 		return c.NoContent(204)
 	})
@@ -937,29 +951,29 @@ func main() {
 		}
 		c.Bind(&params)
 
-		tx, err := db.Begin()
-		if err != nil {
-			return err
+		eventMutex.Lock()
+		event := &Event{}
+		{
+			defer eventMutex.Unlock()
+
+			event.ID = int64(len(eventStore) + 1)
+			event.Title = params.Title
+			event.PublicFg = params.Public
+			event.ClosedFg = false
+			event.Price = int64(params.Price)
+
+			eventStore = append(eventStore, event)
 		}
 
-		res, err := tx.Exec("INSERT INTO events (title, public_fg, closed_fg, price) VALUES (?, ?, 0, ?)", params.Title, params.Public, params.Price)
-		if err != nil {
-			tx.Rollback()
-			return err
-		}
-		eventID, err := res.LastInsertId()
-		if err != nil {
-			tx.Rollback()
-			return err
-		}
-		if err := tx.Commit(); err != nil {
-			return err
-		}
+		go func() {
+			_, err := db.Exec("INSERT INTO events (id, title, public_fg, closed_fg, price) VALUES (?, ?, ?, ?, ?)",
+				event.ID, event.Title, event.PublicFg, event.ClosedFg, event.Price)
+			if err != nil {
+				log.Println(err)
+			}
+		}()
 
-		event, err := getEvent(eventID, -1)
-		if err != nil {
-			return err
-		}
+		fillEventOtherFields(event, -1)
 		return c.JSON(200, event)
 	}, adminLoginRequired)
 	e.GET("/admin/api/events/:id", func(c echo.Context) error {
@@ -1005,23 +1019,16 @@ func main() {
 			return resError(c, "cannot_close_public_event", 400)
 		}
 
-		tx, err := db.Begin()
-		if err != nil {
-			return err
-		}
-		if _, err := tx.Exec("UPDATE events SET public_fg = ?, closed_fg = ? WHERE id = ?", params.Public, params.Closed, event.ID); err != nil {
-			tx.Rollback()
-			return err
-		}
-		if err := tx.Commit(); err != nil {
-			return err
-		}
+		event.PublicFg = params.Public
+		event.ClosedFg = params.Closed
 
-		e, err := getEvent(eventID, -1)
-		if err != nil {
-			return err
-		}
-		c.JSON(200, e)
+		go func() {
+			if _, err := db.Exec("UPDATE events SET public_fg = ?, closed_fg = ? WHERE id = ?", event.PublicFg, event.ClosedFg, event.ID); err != nil {
+				log.Println(err)
+			}
+		}()
+
+		c.JSON(200, event)
 		return nil
 	}, adminLoginRequired)
 	e.GET("/admin/api/reports/events/:id/sales", func(c echo.Context) error {
