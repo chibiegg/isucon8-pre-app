@@ -788,7 +788,7 @@ func main() {
 					return
 				}
 
-				reservationID, err = res.LastInsertId()
+				reservationID, err := res.LastInsertId()
 				if reservation.ID != reservationID {
 					log.Println("reservation ID mismatch")
 					return
