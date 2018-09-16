@@ -287,6 +287,25 @@ func getEvent(eventID, loginUserID int64) (*Event, error) {
 		"C": &Sheets{},
 	}
 
+
+	reservationsMap := make(map[int64]*Reservation)
+
+	var reservations []*Reservation
+	From(reservationStore).Where(func(c interface{}) bool {
+		r := c.(*Reservation)
+		if r.EventID != event.ID {
+			return false
+		}
+		if r.CanceledAt != nil {
+			return false
+		}
+		return true
+	}).ToSlice(&reservations)
+
+	for _, r := range reservations{
+		reservationsMap[r.SheetID] = r
+	}
+
 	for _, s := range DefaultSheets {
 		var sheet = Sheet{
 			ID:    s.ID,
@@ -299,37 +318,12 @@ func getEvent(eventID, loginUserID int64) (*Event, error) {
 		event.Total++
 		event.Sheets[sheet.Rank].Total++
 
-		var reservations []*Reservation
-		From(reservationStore).Where(func(c interface{}) bool {
-			r := c.(*Reservation)
-			if r.EventID != event.ID {
-				return false
-			}
-			if r.CanceledAt != nil {
-				return false
-			}
-			return true
-		}).ToSlice(&reservations)
+		reservation, ok := reservationsMap[s.ID]
 
-		/*
-		err := db.QueryRow(""+
-			"SELECT * FROM reservations "+
-			"WHERE event_id = ? AND sheet_id = ? AND canceled_at IS NULL "+
-			"GROUP BY event_id, sheet_id HAVING reserved_at = MIN(reserved_at)", event.ID, sheet.ID,
-		).Scan(
-			&reservation.ID,
-			&reservation.EventID,
-			&reservation.SheetID,
-			&reservation.UserID,
-			&reservation.ReservedAt,
-			&reservation.CanceledAt)
-		*/
-
-		if len(reservations) == 0 {
+		if !ok {
 			event.Remains++
 			event.Sheets[sheet.Rank].Remains++
 		} else {
-			reservation := reservations[1]
 			sheet.Mine = reservation.UserID == loginUserID
 			sheet.Reserved = true
 			sheet.ReservedAtUnix = reservation.ReservedAt.Unix()
