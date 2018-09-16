@@ -351,6 +351,15 @@ func getEvent(eventID, loginUserID int64) (*Event, error) {
 	return fillEventOtherFields(e, loginUserID), nil
 }
 
+func updateEvent(eventID int64, public bool, closed bool) {
+	if eventID <= 0 || len(eventStore) <= int(eventID) - 1 {
+		return
+	}
+	e := eventStore[eventID - 1]
+	e.PublicFg = public
+	e.ClosedFg = closed
+}
+
 func sanitizeEvent(e *Event) *Event {
 	sanitized := *e
 	sanitized.Price = 0
@@ -1028,8 +1037,10 @@ func main() {
 
 		event.PublicFg = params.Public
 		event.ClosedFg = params.Closed
+		updateEvent(eventID, params.Public, params.Closed)
 
 		go func() {
+			event, _ := getEvent(eventID, -1)
 			if _, err := db.Exec("UPDATE events SET public_fg = ?, closed_fg = ? WHERE id = ?", event.PublicFg, event.ClosedFg, event.ID); err != nil {
 				log.Println(err)
 			}
