@@ -329,6 +329,7 @@ func getEvent(eventID, loginUserID int64) (*Event, error) {
 			event.Remains++
 			event.Sheets[sheet.Rank].Remains++
 		} else {
+			reservation := reservations[1]
 			sheet.Mine = reservation.UserID == loginUserID
 			sheet.Reserved = true
 			sheet.ReservedAtUnix = reservation.ReservedAt.Unix()
