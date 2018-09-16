@@ -399,6 +399,8 @@ func main() {
 		log.Fatal(err)
 	}
 
+	initReservation()
+
 	// DefaultSheets
 	DefaultSheets = make([]*Sheet, 0, 1000)
 	for _, rank := range []string{"S", "A", "B", "C"} {
@@ -513,24 +515,26 @@ func main() {
 			return resError(c, "forbidden", 403)
 		}
 
-		rows, err := db.Query(""+
-			"SELECT r.*"+
-			"FROM reservations r WHERE r.user_id = ? "+
-			"ORDER BY IFNULL(r.canceled_at, r.reserved_at) "+
-			"DESC LIMIT 5",
-			user.ID)
-		if err != nil {
-			return err
-		}
-		defer rows.Close()
-
-		var recentReservations []Reservation
-		for rows.Next() {
-			var reservation Reservation
-			if err := rows.Scan(&reservation.ID, &reservation.EventID, &reservation.SheetID, &reservation.UserID, &reservation.ReservedAt, &reservation.CanceledAt); err != nil {
-				return err
+		var relatedReservations []*Reservation
+		From(reservationStore).Where(func(c interface{}) bool {
+			r := c.(*Reservation)
+			if r.UserID != user.ID {
+				return false
 			}
+			return true
+		}).OrderBy(func(c interface{}) interface{} {
+			r := c.(*Reservation)
+			if r.CanceledAt != nil {
+				return r.CanceledAt.UnixNano()
+			} else {
+				return r.ReservedAt.UnixNano()
+			}
+		}).ToSlice(&relatedReservations)
 
+		var recentReservations []*Reservation
+		From(reservationStore).Take(5).ToSlice(&recentReservations)
+
+		for _, reservation := range (recentReservations) {
 			sheet := getSheetFromId(reservation.SheetID)
 
 			event, err := getEvent(reservation.EventID, -1)
@@ -550,35 +554,50 @@ func main() {
 			if reservation.CanceledAt != nil {
 				reservation.CanceledAtUnix = reservation.CanceledAt.Unix()
 			}
-			recentReservations = append(recentReservations, reservation)
-		}
-		if recentReservations == nil {
-			recentReservations = make([]Reservation, 0)
 		}
 
-		var totalPrice int
-		if err := db.QueryRow(""+
-			"SELECT IFNULL(SUM(e.price + s.price), 0) "+
-			"FROM reservations r "+
-			"INNER JOIN sheets s ON s.id = r.sheet_id "+
-			"INNER JOIN events e ON e.id = r.event_id "+
-			"WHERE r.user_id = ? AND r.canceled_at IS NULL",
-			user.ID).Scan(&totalPrice); err != nil {
-			return err
-		}
-
-		rows, err = db.Query("SELECT event_id FROM reservations WHERE user_id = ? GROUP BY event_id ORDER BY MAX(IFNULL(canceled_at, reserved_at)) DESC LIMIT 5", user.ID)
-		if err != nil {
-			return err
-		}
-		defer rows.Close()
-
-		var recentEvents []*Event
-		for rows.Next() {
-			var eventID int64
-			if err := rows.Scan(&eventID); err != nil {
+		totalPrice := 0
+		for _,reservation := range(relatedReservations) {
+			if reservation.CanceledAt != nil {
+				continue
+			}
+			sheet := getSheetFromId(reservation.SheetID)
+			event, err := getEvent(reservation.EventID, -1)
+			if err != nil {
+				log.Println(err)
 				return err
 			}
+			curPrice := event.Price + sheet.Price
+
+			totalPrice += int(curPrice)
+		}
+
+		var eventIds []int64
+		From(relatedReservations).GroupBy(func(c interface{}) interface{}{
+			r := c.(*Reservation)
+			return r.EventID
+		}, func(c interface{}) interface{} {
+			return c
+		}).OrderBy(func(c interface{}) interface{} {
+			values := c.(Group).Group
+			maxTime := From(values).Select(func(c2 interface{}) interface{} {
+				r := c2.(*Reservation)
+				if r.CanceledAt != nil {
+					return r.CanceledAt.UnixNano()
+				} else {
+					return r.ReservedAt.UnixNano()
+				}
+			}).Max().(int64)
+
+			return maxTime
+		}).Take(5).Select(func(c interface{}) interface{} {
+			eventId := c.(Group).Key
+			return eventId
+		}).ToSlice(&eventIds)
+
+
+		var recentEvents []*Event
+		for _, eventID := range(eventIds) {
 			event, err := getEvent(eventID, -1)
 			if err != nil {
 				return err
