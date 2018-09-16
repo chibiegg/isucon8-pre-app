@@ -714,7 +714,7 @@ func main() {
 			}
 
 			useSheetId := int64(-1)
-			for i := sheetIdL; i < sheetIdR; i++ {
+			for i := 0; i < int(sheetIdR - sheetIdL); i++ {
 				id := idxes[i]
 				if !usedSheets[id-sheetIdL] {
 					useSheetId = id
