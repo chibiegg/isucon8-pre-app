@@ -199,6 +199,34 @@ func getLoginAdministrator(c echo.Context) (*Administrator, error) {
 	return &administrator, err
 }
 
+var (
+	reservationStore = make([]Reservation, 0)
+)
+
+func initReservation() error {
+	rows, err := db.Query("SELECT * FROM reservations")
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	reservationStore = make([]Reservation, 0)
+
+	for rows.Next() {
+		var reservation Reservation
+		rows.Scan(
+			&reservation.ID,
+			&reservation.EventID,
+			&reservation.SheetID,
+			&reservation.UserID,
+			&reservation.ReservedAt,
+			&reservation.CanceledAt)
+		reservationStore = append(reservationStore, reservation)
+	}
+
+	return nil
+}
+
 func getEvents(all bool) ([]*Event, error) {
 	tx, err := db.Begin()
 	if err != nil {
@@ -261,7 +289,18 @@ func getEvent(eventID, loginUserID int64) (*Event, error) {
 		event.Sheets[sheet.Rank].Total++
 
 		var reservation Reservation
-		err := db.QueryRow("SELECT * FROM reservations WHERE event_id = ? AND sheet_id = ? AND canceled_at IS NULL GROUP BY event_id, sheet_id HAVING reserved_at = MIN(reserved_at)", event.ID, sheet.ID).Scan(&reservation.ID, &reservation.EventID, &reservation.SheetID, &reservation.UserID, &reservation.ReservedAt, &reservation.CanceledAt)
+		err := db.QueryRow("" +
+			"SELECT * FROM reservations " +
+			"WHERE event_id = ? AND sheet_id = ? AND canceled_at IS NULL " +
+			"GROUP BY event_id, sheet_id HAVING reserved_at = MIN(reserved_at)", event.ID, sheet.ID,
+			).Scan(
+				&reservation.ID,
+				&reservation.EventID,
+				&reservation.SheetID,
+				&reservation.UserID,
+				&reservation.ReservedAt,
+				&reservation.CanceledAt)
+
 		if err == nil {
 			sheet.Mine = reservation.UserID == loginUserID
 			sheet.Reserved = true
@@ -383,6 +422,11 @@ func main() {
 			"origin": c.Scheme() + "://" + c.Request().Host,
 		})
 	}, fillinUser)
+	e.GET("/debug/initReservation", func(c echo.Context) error {
+		initReservation()
+		return c.NoContent(204)
+	})
+
 	e.GET("/initialize", func(c echo.Context) error {
 		cmd := exec.Command("../../db/init.sh")
 		cmd.Stdin = os.Stdin
@@ -391,6 +435,8 @@ func main() {
 		if err != nil {
 			return nil
 		}
+
+		initReservation()
 
 		return c.NoContent(204)
 	})
