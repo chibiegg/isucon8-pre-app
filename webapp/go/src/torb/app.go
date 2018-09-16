@@ -196,9 +196,12 @@ func getLoginUser(c echo.Context) (*User, error) {
 	if userID == 0 {
 		return nil, errors.New("not logged in")
 	}
+	var user User
 	// err := db.QueryRow("SELECT id, nickname FROM users WHERE id = ?", userID).Scan(&user.ID, &user.Nickname)
-	user, _ := Users[userID]
-	return user, nil
+	u, _ := Users[userID]
+	user.ID = u.ID
+	user.Nickname = u.Nickname
+	return &user, nil
 }
 
 func getLoginAdministrator(c echo.Context) (*Administrator, error) {
