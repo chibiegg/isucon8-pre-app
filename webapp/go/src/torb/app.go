@@ -6,21 +6,21 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	_ "github.com/go-sql-driver/mysql"
+	"github.com/gorilla/sessions"
+	"github.com/labstack/echo"
+	"github.com/labstack/echo-contrib/session"
+	"github.com/labstack/echo/middleware"
 	"html/template"
 	"io"
 	"log"
+	"math/rand"
 	"os"
 	"os/exec"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
-
-	_ "github.com/go-sql-driver/mysql"
-	"github.com/gorilla/sessions"
-	"github.com/labstack/echo"
-	"github.com/labstack/echo-contrib/session"
-	"github.com/labstack/echo/middleware"
 )
 
 type User struct {
@@ -704,10 +704,20 @@ func main() {
 				}
 			}
 
+			idxes := make([]int64, sheetIdR - sheetIdL)
+			for i := 0; i < len(idxes); i++ {
+				idxes[i] = int64(i) + sheetIdL
+			}
+			for i := len(idxes) - 1; i >= 0; i-- {
+				j := rand.Intn(i + 1)
+				idxes[i], idxes[j] = idxes[j], idxes[i]
+			}
+
 			useSheetId := int64(-1)
 			for i := sheetIdL; i < sheetIdR; i++ {
-				if !usedSheets[i-sheetIdL] {
-					useSheetId = i
+				id := idxes[i]
+				if !usedSheets[id-sheetIdL] {
+					useSheetId = id
 					break
 				}
 			}
