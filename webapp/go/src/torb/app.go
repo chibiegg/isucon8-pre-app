@@ -308,6 +308,16 @@ func fillEventOtherFields(event *Event, loginUserID int64) {
 		reservationsMap[r.SheetID] = r
 	}
 
+	event.Total = 1000
+	event.Remains = 0
+	for rank, sc := range SheetConfigs {
+		event.Sheets[rank].Total = int(sc.Count)
+		event.Sheets[rank].Price = event.Price + sc.Price
+		event.Sheets[rank].Remains = 0
+		event.Sheets[rank].Detail = make([]*Sheet, 0)
+	}
+
+
 	for _, s := range DefaultSheets {
 		var sheet = Sheet{
 			ID:    s.ID,
@@ -315,11 +325,6 @@ func fillEventOtherFields(event *Event, loginUserID int64) {
 			Num:   s.Num,
 			Price: s.Price,
 		}
-
-		event.Sheets[sheet.Rank].Price = event.Price + sheet.Price
-		event.Total++
-		event.Sheets[sheet.Rank].Total++
-
 		reservation, ok := reservationsMap[s.ID]
 
 		if !ok {
