@@ -21,6 +21,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -212,6 +213,7 @@ func getLoginAdministrator(c echo.Context) (*Administrator, error) {
 
 var (
 	reservationStore = make([]*Reservation, 0)
+	reservationMutex = new(sync.Mutex)
 )
 
 func initReservation() error {
@@ -287,7 +289,6 @@ func getEvent(eventID, loginUserID int64) (*Event, error) {
 		"C": &Sheets{},
 	}
 
-
 	reservationsMap := make(map[int64]*Reservation)
 
 	var reservations []*Reservation
@@ -302,7 +303,7 @@ func getEvent(eventID, loginUserID int64) (*Event, error) {
 		return true
 	}).ToSlice(&reservations)
 
-	for _, r := range reservations{
+	for _, r := range reservations {
 		reservationsMap[r.SheetID] = r
 	}
 
@@ -700,18 +701,27 @@ func main() {
 		var sheet *Sheet
 		var reservationID int64
 		for {
-			rows, _ := db.Query("SELECT sheet_id FROM reservations WHERE event_id = ? AND canceled_at IS NULL FOR UPDATE", event.ID)
-			defer rows.Close()
 
-			for rows.Next() {
-				var sheetId int64
-				rows.Scan(&sheetId)
+			var reservations []*Reservation
+			From(reservationStore).Where(func(c interface{}) bool {
+				r := c.(*Reservation)
+				if r.EventID != event.ID {
+					return false
+				}
+				if r.CanceledAt != nil {
+					return false
+				}
+				return true
+			}).ToSlice(&reservations)
+
+			for _, reservation := range reservations {
+				sheetId := reservation.SheetID
 				if sheetIdL <= sheetId && sheetId < sheetIdR {
 					usedSheets[sheetId-sheetIdL] = true
 				}
 			}
 
-			idxes := make([]int64, sheetIdR - sheetIdL)
+			idxes := make([]int64, sheetIdR-sheetIdL)
 			for i := 0; i < len(idxes); i++ {
 				idxes[i] = int64(i) + sheetIdL
 			}
@@ -734,28 +744,36 @@ func main() {
 			}
 			sheet = getSheetFromId(useSheetId)
 
-			tx, err := db.Begin()
-			if err != nil {
-				return err
+			reservation := &Reservation{}
+			reservationMutex.Lock()
+			{
+				defer reservationMutex.Unlock()
+
+				reservation.ID = int64(len(reservationStore) + 1)
+				reservation.EventID = event.ID
+				reservation.SheetID = sheet.ID
+				reservation.UserID = user.ID
+				reservationTime := time.Now().UTC()
+				reservation.ReservedAt = &reservationTime
+
+				reservationStore = append(reservationStore, reservation)
 			}
 
-			res, err := tx.Exec("INSERT INTO reservations (event_id, sheet_id, user_id, reserved_at) VALUES (?, ?, ?, ?)", event.ID, sheet.ID, user.ID, time.Now().UTC().Format("2006-01-02 15:04:05.000000"))
-			if err != nil {
-				tx.Rollback()
-				log.Println("re-try: rollback by", err)
-				continue
-			}
-			reservationID, err = res.LastInsertId()
-			if err != nil {
-				tx.Rollback()
-				log.Println("re-try: rollback by", err)
-				continue
-			}
-			if err := tx.Commit(); err != nil {
-				tx.Rollback()
-				log.Println("re-try: rollback by", err)
-				continue
-			}
+			go func() {
+				res, err := db.Exec("INSERT INTO reservations (id, event_id, sheet_id, user_id, reserved_at) VALUES (?, ?, ?, ?, ?)",
+					reservation.ID, reservation.EventID, reservation.SheetID, reservation.UserID, reservation.ReservedAt.Format("2006-01-02 15:04:05.000000"))
+
+				if err != nil {
+					log.Println("error happened on Exec")
+					return
+				}
+
+				reservationID, err = res.LastInsertId()
+				if reservation.ID != reservationID {
+					log.Println("reservation ID mismatch")
+					return
+				}
+			}()
 
 			break
 		}
@@ -802,32 +820,38 @@ func main() {
 		}
 		sheetId := sc.ID + intNum - 1
 
-		tx, err := db.Begin()
-		if err != nil {
-			return err
-		}
-
-		var reservation Reservation
-		if err := tx.QueryRow("SELECT * FROM reservations WHERE event_id = ? AND sheet_id = ? AND canceled_at IS NULL GROUP BY event_id HAVING reserved_at = MIN(reserved_at) FOR UPDATE", event.ID, sheetId).Scan(&reservation.ID, &reservation.EventID, &reservation.SheetID, &reservation.UserID, &reservation.ReservedAt, &reservation.CanceledAt); err != nil {
-			tx.Rollback()
-			if err == sql.ErrNoRows {
-				return resError(c, "not_reserved", 400)
+		var reservations []*Reservation
+		From(reservationStore).Where(func(c interface{}) bool {
+			r := c.(*Reservation)
+			if r.EventID != event.ID {
+				return false
 			}
-			return err
+			if r.SheetID != sheetId {
+				return false
+			}
+			if r.CanceledAt != nil {
+				return false
+			}
+			return true
+		}).ToSlice(&reservations)
+
+		if len(reservations) == 0 {
+			return resError(c, "not_reserved", 400)
 		}
+		reservation := reservations[0]
+
 		if reservation.UserID != user.ID {
-			tx.Rollback()
 			return resError(c, "not_permitted", 403)
 		}
 
-		if _, err := tx.Exec("UPDATE reservations SET canceled_at = ? WHERE id = ?", time.Now().UTC().Format("2006-01-02 15:04:05.000000"), reservation.ID); err != nil {
-			tx.Rollback()
-			return err
-		}
+		canceledAt := time.Now().UTC()
+		reservation.CanceledAt = &canceledAt
 
-		if err := tx.Commit(); err != nil {
-			return err
-		}
+		go func() {
+			if _, err := db.Exec("UPDATE reservations SET canceled_at = ? WHERE id = ?", canceledAt.Format("2006-01-02 15:04:05.000000"), reservation.ID); err != nil {
+				log.Println("error happened on UPDATE reservations", err)
+			}
+		}()
 
 		return c.NoContent(204)
 	}, loginRequired)
