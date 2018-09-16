@@ -282,7 +282,9 @@ func getEvents(all bool) ([]*Event, error) {
 	return events, nil
 }
 
-func fillEventOtherFields(event *Event, loginUserID int64) {
+func fillEventOtherFields(e *Event, loginUserID int64) {
+	var event Event = *e
+
 	event.Sheets = map[string]*Sheets{
 		"S": &Sheets{},
 		"A": &Sheets{},
