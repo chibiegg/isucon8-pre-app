@@ -1035,18 +1035,20 @@ func main() {
 			return err
 		}
 
-		rows, err := db.Query("SELECT r.*, e.price AS event_price FROM reservations r INNER JOIN events e ON e.id = r.event_id WHERE r.event_id = ? ORDER BY reserved_at ASC FOR UPDATE", event.ID)
-		if err != nil {
-			return err
-		}
-		defer rows.Close()
+		var reservations []*Reservation
+		From(reservationStore).Where(func(c interface{}) bool {
+			r := c.(*Reservation)
+			if r.EventID != event.ID {
+				return false
+			}
+			return true
+		}).OrderBy(func(c interface{}) interface{} {
+			r := c.(*Reservation)
+			return r.ReservedAt.UnixNano()
+		}).ToSlice(&reservations)
 
 		var reports []Report
-		for rows.Next() {
-			var reservation Reservation
-			if err := rows.Scan(&reservation.ID, &reservation.EventID, &reservation.SheetID, &reservation.UserID, &reservation.ReservedAt, &reservation.CanceledAt, &event.Price); err != nil {
-				return err
-			}
+		for _, reservation := range reservations {
 			sheet := getSheetFromId(reservation.SheetID)
 			report := Report{
 				ReservationID: reservation.ID,
@@ -1065,19 +1067,21 @@ func main() {
 		return renderReportCSV(c, reports)
 	}, adminLoginRequired)
 	e.GET("/admin/api/reports/sales", func(c echo.Context) error {
-		rows, err := db.Query("select r.*, e.id as event_id, e.price as event_price from reservations r inner join events e on e.id = r.event_id order by reserved_at asc for update")
-		if err != nil {
-			return err
+		var reservations []*Reservation
+		From(reservationStore).OrderBy(func(c interface{}) interface{} {
+			r := c.(*Reservation)
+			return r.ReservedAt.UnixNano()
+		}).ToSlice(&reservations)
+
+		events, _ := getEvents(true)
+		eventMap := make(map[int64]*Event)
+		for _, event := range events {
+			eventMap[event.ID] = event
 		}
-		defer rows.Close()
 
 		var reports []Report
-		for rows.Next() {
-			var reservation Reservation
-			var event Event
-			if err := rows.Scan(&reservation.ID, &reservation.EventID, &reservation.SheetID, &reservation.UserID, &reservation.ReservedAt, &reservation.CanceledAt, &event.ID, &event.Price); err != nil {
-				return err
-			}
+		for _, reservation := range reservations {
+			event := eventMap[reservation.EventID]
 			sheet := getSheetFromId(reservation.SheetID)
 
 			report := Report{
