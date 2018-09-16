@@ -104,6 +104,8 @@ func getSheetRange(rank string) (int64, int64) {
 
 var DefaultSheets []*Sheet
 
+var Users map[int64]*User
+
 func getSheetFromId(id int64) *Sheet {
 	sheet := DefaultSheets[id-1]
 	return sheet
@@ -194,9 +196,9 @@ func getLoginUser(c echo.Context) (*User, error) {
 	if userID == 0 {
 		return nil, errors.New("not logged in")
 	}
-	var user User
-	err := db.QueryRow("SELECT id, nickname FROM users WHERE id = ?", userID).Scan(&user.ID, &user.Nickname)
-	return &user, err
+	// err := db.QueryRow("SELECT id, nickname FROM users WHERE id = ?", userID).Scan(&user.ID, &user.Nickname)
+	user, _ := Users[userID]
+	return user, nil
 }
 
 func getLoginAdministrator(c echo.Context) (*Administrator, error) {
@@ -405,6 +407,9 @@ func main() {
 		}
 	}
 
+	// Users
+	Users = map[int64]*User{}
+
 	e := echo.New()
 	funcs := template.FuncMap{
 		"encode_json": func(v interface{}) string {
@@ -606,6 +611,8 @@ func main() {
 			}
 			return err
 		}
+
+		Users[user.ID] = user
 
 		var passHash string
 		if err := db.QueryRow("SELECT SHA2(?, 256)", params.Password).Scan(&passHash); err != nil {
